@@ -1,0 +1,7 @@
+#CREATE request parameters
+string name
+int32 frame
+bool useSensorValues
+--------------------------------
+#CREATE response parameters
+float64[] coordinates
