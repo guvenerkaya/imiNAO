@@ -1,0 +1,32 @@
+<html>
+
+<head>
+<meta charset="UTF-8">
+<!-- Load TensorFlow.js -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+<!-- Load Posenet -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet"></script> 
+</head>
+
+<body>
+<img id='pose_demo' src=' http://127.0.0.1:8080/demo.jpeg' crossorigin="anonymous" />
+</body>
+<!-- Place your code in the script tag below. You can also use an external .js file -->
+<script>
+
+var flipHorizontal = false;
+var imageElement = document.getElementById('pose_demo');
+
+imageElement.crossOrigin = "Anonymous";
+
+posenet.load().then(function (net) {
+const pose = net.estimateSinglePose(imageElement, {
+flipHorizontal: true
+ });
+return pose;
+}).then(function (pose) {
+console.log(pose);
+})
+</script>
+
+</html>

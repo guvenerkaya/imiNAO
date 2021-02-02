@@ -54,6 +54,7 @@ function imageReady(){
     // Listen to new 'pose' events
     poseNet.on("pose", function(results) {
         poses = results;
+        console.log(poses);
         draw(poses)
     });
 }

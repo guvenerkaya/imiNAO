@@ -1,0 +1,13 @@
+#CREATE request parameters
+string name
+int32 frame
+int32 axisMask
+bool useSensorValues
+bool absolute
+float64 maxSpeedFraction
+float64[] times
+float64[] target
+bool init_posture
+--------------------------------
+#CREATE response parameters
+int8 err_code
