@@ -36,9 +36,9 @@ function setup() {
 
     // create an image using the p5 dom library
     // call modelReady() when it is loaded
-    img = createImg('data/bg.png', imageReady);
+    img = createImg('data/bg.png', imageReady)
     // set the image size to the size of the canvas
-    img.size(width, height);
+    img.size(width, height)
 
     img.hide(); // hide the image in the browser
     frameRate(5); // set the frameRate to 1 since we don't need it to be running quickly in this case
@@ -53,8 +53,8 @@ function imageReady(){
 
     // Listen to new 'pose' events
     poseNet.on("pose", function(results) {
-        poses = results;
-        console.log(poses);
+        poses = results
+        console.log(poses)
         draw(poses)
     });
 }
@@ -62,7 +62,7 @@ function imageReady(){
 
 // when poseNet is ready, do the detection
 function modelReady() {
-    select('#status').html('Model Loaded');
+    select('#status').html('Model Loaded')
      
     // When the model is ready, run the singlePose() function...
     // If/When a pose is detected, poseNet.on('pose', ...) will be listening for the detection results 
@@ -74,10 +74,10 @@ function modelReady() {
 // draw() will not show anything until poses are found
 function draw(poses) {
     if (poses.length > 0) {
-        image(img, 0, 0, width, height);
-        drawSkeleton(poses);
-        drawKeypoints(poses);
-        noLoop(); // stop looping when the poses are estimated
+        image(img, 0, 0, width, height)
+        drawSkeleton(poses)
+        drawKeypoints(poses)
+        noLoop() // stop looping when the poses are estimated
     }
 
 }
@@ -89,16 +89,16 @@ function drawKeypoints(poses) {
     // Loop through all the poses detected
     for (let i = 0; i < poses.length; i++) {
         // For each pose detected, loop through all the keypoints
-        let pose = poses[i].pose;
+        let pose = poses[i].pose
         for (let j = 0; j < pose.keypoints.length; j++) {
             // A keypoint is an object describing a body part (like rightArm or leftShoulder)
-            let keypoint = pose.keypoints[j];
+            let keypoint = pose.keypoints[j]
             // Only draw an ellipse is the pose probability is bigger than 0.2
             if (keypoint.score > 0.2) {
-                fill(255);
-                stroke(20);
-                strokeWeight(4);
-                ellipse(round(keypoint.position.x), round(keypoint.position.y), 8, 8);
+                fill(255)
+                stroke(20)
+                strokeWeight(4)
+                ellipse(round(keypoint.position.x), round(keypoint.position.y), 8, 8)
             }
         }
     }
@@ -108,14 +108,14 @@ function drawKeypoints(poses) {
 function drawSkeleton(poses) {
     // Loop through all the skeletons detected
     for (let i = 0; i < poses.length; i++) {
-        let skeleton = poses[i].skeleton;
+        let skeleton = poses[i].skeleton
         // For every skeleton, loop through all body connections
         for (let j = 0; j < skeleton.length; j++) {
-            let partA = skeleton[j][0];
-            let partB = skeleton[j][1];
-            stroke(255);
-            strokeWeight(2);
-            line(partA.position.x, partA.position.y, partB.position.x, partB.position.y);
+            let partA = skeleton[j][0]
+            let partB = skeleton[j][1]
+            stroke(255)
+            strokeWeight(2)
+            line(partA.position.x, partA.position.y, partB.position.x, partB.position.y)
         }
     }
 }

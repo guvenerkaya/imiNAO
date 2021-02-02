@@ -8,5 +8,19 @@
   <arg name="nao_ip" default="$(optenv NAO_IP 127.0.0.1)" />
   <arg name="nao_port" default="$(optenv NAO_PORT 9559)" />
 
-  <node pkg="perceptor" type="ros_interface.py" name="perceptor" required="true" args="$(arg nao_ip) $(arg nao_port)" output="screen"/>
+  <!--<node pkg="perceptor" type="ros_interface.py" name="perceptor" required="true" args="$(arg nao_ip) $(arg nao_port)" output="screen"/>-->
+
+  <node pkg="perceptor" type="ros_interface.js" name="perceptor" output="screen">
+      <param name="topic" value="/nao_robot/camera/bottom/camera/image_raw" />
+      <param name="multiPerson" value="false" />
+      <param name="gpu" value="true" />
+      <param name="poses_topic" value="/poses" />
+      <param name="multiplier" value="1.01" />
+      <param name="image_scale_factor" value="0.5" />
+      <param name="flip_horizontal" value="false" />
+      <param name="output_stride" value="16" />
+      <param name="max_pose" value="5" />
+      <param name="score_threshold" value="0.5" />
+      <param name="nms_radius" value="20" />
+  </node>
 </launch>

@@ -1,0 +1,10 @@
+{
+  "dependencies": {
+    "@tensorflow-models/posenet": "^2.2.1",
+    "@tensorflow/tfjs": "^3.0.0",
+    "@tensorflow/tfjs-node-gpu": "^3.0.0",
+    "json-stringify": "^1.0.0",
+    "rosnodejs": "^3.0.2",
+    "xhr2": "^0.2.0"
+  }
+}
