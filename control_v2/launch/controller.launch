@@ -8,9 +8,9 @@
   <arg name="nao_ip" default="$(optenv NAO_IP 127.0.0.1)" />
   <arg name="nao_port" default="$(optenv NAO_PORT 9559)" />
 
-  <node pkg="control_v2" type="move_service.py" name="move_service" required="true" args="$(arg nao_ip) $(arg nao_port)" output="screen"/>
-  <node pkg="control_v2" type="get_joint_service.py" name="get_joint_service" required="true" args="$(arg nao_ip) $(arg nao_port)" output="screen"/>
+  <node pkg="control_v2" type="nao_control.py" name="controller" required="true" args="$(arg nao_ip) $(arg nao_port)" output="screen"/>
   <!--
+    <node pkg="control_v2" type="get_joint_service.py" name="get_joint_service" required="true" args="$(arg nao_ip) $(arg nao_port)" output="screen"/>
     <node pkg="control_v2" type="keyboard_node.py" name="keyboard" required="true" args="$(arg nao_ip) $(arg nao_port)" output="screen"/>
   -->
 

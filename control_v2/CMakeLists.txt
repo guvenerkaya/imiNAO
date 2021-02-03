@@ -13,8 +13,8 @@ find_package(catkin REQUIRED COMPONENTS
 add_service_files(
     DIRECTORY srv
     FILES
-    MoveJoints.srv
-    GetJoint.srv
+    #MoveJoints.srv
+    #GetJoint.srv
 )
 
 generate_messages(DEPENDENCIES std_msgs)
@@ -23,10 +23,10 @@ include_directories(
   ${catkin_INCLUDE_DIRS}
 )
 
-catkin_install_python(PROGRAMS ./scripts/move_service.py
+catkin_install_python(PROGRAMS ./scripts/nao_control.py
     DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
 #find_package(OpenCV REQUIRED)
-add_executable(nao_1 src/client.cpp)
+#add_executable(nao_1 src/client.cpp)
 target_link_libraries(nao_1 ${catkin_LIBRARIES} ${OpenCV_LIBS})

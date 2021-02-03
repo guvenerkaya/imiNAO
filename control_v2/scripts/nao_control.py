@@ -10,13 +10,12 @@ from std_msgs.msg import String
 from std_srvs.srv import Empty
 from naoqi_bridge_msgs.msg import JointAnglesWithSpeed
 from sensor_msgs.msg import JointState
-from control_v2.srv import MoveJoints
+#from control_v2.srv import MoveJoints
 from cv_bridge import CvBridge, CvBridgeError
 from naoqi import ALProxy
 
 # set parameter on start
 motionProxy = 0
-
 
 
 class Control:
@@ -97,21 +96,94 @@ class Control:
         joint_angles_to_set.speed = 0.1 # keep this low if you can
         self.jointPub.publish(joint_angles_to_set)
 
-    def joint_clamp():
+    def joint_clamp(self, angles): #check the requested angle with limits of joints and adjust angles, if necessary
         #HeadPitch_clamp = ...
         #HeadYaw_clamp = ...
-        LShoulderPitch_clamp    = (-119.5*almath.TO_RAD ,119.5*almath.TO_RAD)
-        LShoulderRoll           = (-18*almath.TO_RAD    ,76*almath.TO_RAD)
-        LElbowYaw               = (-119.5*almath.TO_RAD ,119.5*almath.TO_RAD)
-        LElbowRoll              = (-88.5*almath.TO_RAD  ,-2*almath.TO_RAD)
-        LWristYaw               = (-104.5*almath.TO_RAD ,104.5*almath.TO_RAD)
-        RShoulderPitch          = (-119.5*almath.TO_RAD ,119.5*almath.TO_RAD)
-        RShoulderRoll           = (-76*almath.TO_RAD    ,18*almath.TO_RAD)
-        RElbowYaw               = (-119.5*almath.TO_RAD ,119.5*almath.TO_RAD)
-        RElbowRoll              = (2*almath.TO_RAD      ,88.5*almath.TO_RAD)
-        RWristYaw               = (-104.5*almath.TO_RAD ,104.5*almath.TO_RAD)
 
-    
+        #LShoulderPitch    
+        angles[0]= max(-119.5,   min(angles[0],   119.5))
+        #LShoulderRoll    
+        angles[1]= max(-18,      min(angles[1],   76)
+        #LElbowYaw
+        angles[2]= max(-119.5,   min(angles[2],   119.5)
+        #LElbowRoll
+        angles[3]= max(-88.5,    min(angles[3],   -2)
+        #LWristYaw
+        angles[4]= max(-104.5,   min(angles[4],   104.5)
+        #RShoulderPitch
+        angles[5]= max(-119.5,   min(angles[5],   119.5)
+        #RShoulderRoll
+        angles[6]= max(-76,      min(angles[6],   18)
+        #RElbowYaw
+        angles[7]= max(-119.5,   min(angles[7],   119.5)
+        #RElbowRoll
+        angles[8]= max(2,        min(angles[8],   88.5)
+        #RWristYaw
+        angles[9]= max(-104.5,   min(angles[9],   104.5)
+
+        return angles
+
+    def degree_to_rad_convertion(self, angles): # convert all degree values to radians
+        angles = [i * almath.TO_RAD for i in angles]
+
+        return angles
+
+    def set_pose_joint_space(self, motionProxy, step): #update joints with interpolation
+
+        # set the names for interpolation movement
+        names = ["LShoulderPitch", "LShoulderRoll", "LElbowYaw"] 
+        names += ["LElbowRoll", "LWristYaw"] # "LHand" not included in movement, extra call
+        names += ["RShoulderPitch", "RShoulderRoll", "RElbowYaw"]
+        names += ["RElbowRoll", "RWristYaw"] # "RHand" not included in movement, extra call
+
+        # set parameters for interpolation movement
+        time_len = 2.0
+        timeLists = []
+        for x in names:
+            timeLists  += [time_len] #interpolation with time
+        isAbsolute = True
+
+        if (step =="init"): # first cycle
+            angles = [0, 70, 0, 0, 0, 0, -70, 0, 0, 0]
+            # angles = calc_angles() -> later fct for calling init angle values
+
+            # check the max. angle of joints
+            angles = self.joint_clamp(angles)
+
+            # convert degrees in radian
+            angles = self.degree_to_rad_convertion(angles)
+
+            # command to change joints in group; non-blocking fct for interpolation
+            motionProxy.post.angleInterpolation(names, angles, timeLists, isAbsolute) 
+            time.sleep(0.5)
+        elif (step=="update") # following cycles 
+
+            # Call getTaskList to have the previous angleInterpolation task number
+            taskList = motionProxy.getTaskList()
+            
+            # Prepare the next target group (follow cycle) -> ranking wrt "names"!
+            angles = [10, -10, 10, -10, 10, 10, 10, 10, 10, 10]
+            # angles = calc_angles() -> later fct for calling update angle values 
+
+            # check the max. angle of joints
+            angles = self.joint_clamp(angles)
+            
+            # convert degrees in radian
+            angles = self.degree_to_rad_convertion(angles)
+
+            # command to change joints in group; 
+            motionProxy.post.angleInterpolation(names, angles, timeLists, isAbsolute)
+            time.sleep(0.5)
+
+            # Kill the first angleInterpolation
+            # smoothly from the current joint position and velocity
+            motionProxy.killTask(taskList[0][1])
+        else
+            print "Error occured in setting joint target"
+            print "-------------------------------------"
+            exit(1)
+
+
 
     def central_control(self):
 
@@ -120,7 +192,7 @@ class Control:
         PORT=int(sys.argv[2])
         print(sys.argv[2])
         motionProxy = ALProxy("ALMotion", robotIP, PORT)
-        rospy.init_node('move_joints_server')
+        rospy.init_node('central_node', anonymous=True) # init node, sets name
 
         # create several topic subscriber #
         rospy.Subscriber("key", String, self.keyboard_data)
@@ -133,7 +205,6 @@ class Control:
         # call service #
         #s = rospy.Service("move_joints_service", MoveJoints, Control.handle_move_joints)
 
-
         ## set stiffness ON: ##
         # don't let the robot stay enabled for too long, the motors will overheat!! (don't go for lunch or something)
         self.set_stiffness(True)
@@ -145,22 +216,14 @@ class Control:
         self.set_joint_angles(0,1.1,0,-1.1,0,0,0,0,0,0,0)
         rospy.sleep(0.5)
 
-        
-        ###########################################################################
-        ## test sequence to demonstrate setting joint angles ##
-        #rospy.sleep(3.0)
-        #self.set_joint_angles(0.5,-0.1,0.5,0.1, 0.1,0) 
-        #rospy.sleep(3.0)   
-        #self.set_joint_angles(0.0)
-        #rospy.sleep(3.0)
-
-        ############################################################################
+        ''' 
+        DEPRICATED
         ## get positions of endeffector/joint
         name = "LArm"
         frame = 0
         useSensorValues = True
 
-        ###########################################################################
+        
         ## set position ##
         effector   = name
         space      = frame
@@ -184,7 +247,7 @@ class Control:
         #                                     axisMask, times, isAbsolute)
         # else:
         #     motionProxy.setPositions(effector, space, target, maxSpeedFraction, axisMask)
-        
+        '''
 
 
         while True:
@@ -242,7 +305,7 @@ class Control:
                     obtain_pos = 0'''
 
             elif self.key == 'f': #refresh setting para
-                obtain_pos = 0
+                obtain_pos = 1
 
             elif self.key == 't': 
                 # times interpolations; here: 'Head' (split in 'HeadYaw' & 'HeadPitch')
@@ -289,40 +352,21 @@ class Control:
             elif self.key == 'v': 
                 # reactive control with interpolation; 
                 
-                # here: 'HeadYaw'
+                # if obtain_pos == 1:
+                    #while True: -> or also establish a key press as abortion like 'while not self.key =..'
+                    if progress == 0
+                        step = "init"
+                        progres += 1
+                    else
+                        step = "update"
+                    self.set_pose_joint_space(motionProxy,step)
 
-                # Head Start to zeros
-                names             = "Head"
-                targetAngles      = [0.0, 0.0]
-                maxSpeedFraction  = 0.2 # Using 20% of maximum joint speed
-                motionProxy.angleInterpolationWithSpeed(names, targetAngles, maxSpeedFraction)
+                    # here: end of while loop
 
-                # Example showing a reactive control with time function angleInterpolation
-                # Goal: after 1.0 second, retarget from 40 to 0 degree: smooth transition
+                    #time.sleep(2.0)
 
-                # Interpolate the head yaw to 20 degrees in 2.0 seconds
-                # With post, angleInterpolation become non-blocking
-                names      = "HeadYaw, HeadPitch"
-                angleLists = [40.0*almath.TO_RAD, 10*almath.TO_RAD]
-                timeLists  = [2.0, 2.0]
-                isAbsolute = True
-                motionProxy.post.angleInterpolation(names, angleLists, timeLists, isAbsolute)
-                time.sleep(0.5)
+                    # obtain_pos += 0
 
-                # Call getTaskList to have the previous angleInterpolation task number
-                taskList = motionProxy.getTaskList()
-
-                # Prepare the next target to 60.0 degrees in 1.0 second
-                angleLists = [60.0*almath.TO_RAD, -10*almath.TO_RAD]
-                timeLists  = [1.0, 1.0]
-                motionProxy.post.angleInterpolation(names, angleLists, timeLists, isAbsolute)
-                time.sleep(0.5)
-
-                # Kill the first angleInterpolation (go to 40.0 degrees), the second start
-                # smoothly from the current joint position and velocity (go to 0 degrees)
-                motionProxy.killTask(taskList[0][1])
-
-                time.sleep(2.0)
 
             elif self.key == 'l': 
                 # Example showing how to get the current task list
