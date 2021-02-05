@@ -21,18 +21,24 @@ Available parts are:
 16	rightAnkle
 === */
 
-let poseNet;
+const ConsoleLogStream = require("rosnodejs/dist/utils/log/ConsoleLogStream");
+
 let poses = [];
 let img;
 const options = {
+    architecture: 'MobileNetV1',
     flipHorizontal: false,
     maxDetections: 1,
     scoreThreshold: 0.8,
+    outputStride: 16,
+    inputResolution: { width: 320, height: 240 },
+    multiplier: 0.75,
     nmsRadius: 30
 }
 
+
 function setup() {
-    createCanvas(320, 240);
+    createCanvas(320, 240)
 
     // create an image using the p5 dom library
     // call modelReady() when it is loaded
@@ -47,16 +53,29 @@ function setup() {
 
 // when the image is ready, then load up PoseNet
 function imageReady(){
+
     // Create a new poseNet method
-    const stream = document.getElementById("stream"); 
-    poseNet = ml5.poseNet(stream, options, modelReady);
+    const stream = document.getElementById("camera_stream"); 
 
     // Listen to new 'pose' events
-    poseNet.on("pose", function(results) {
-        poses = results
-        console.log(poses)
-        draw(poses)
-    });
+    setInterval(function(){
+        const poseNet = ml5.poseNet(stream, {
+            architecture: 'MobileNetV1',
+            flipHorizontal: false,
+            maxDetections: 1,
+            scoreThreshold: 0.8,
+            outputStride: 16,
+            inputResolution: { width: 320, height: 240 },
+            multiplier: 0.75,
+            nmsRadius: 30
+        }, modelReady);
+        poseNet.on("pose", function(results) {
+            console.log("ALRIGHT?")
+            poses = results
+            console.log(poses)
+            draw(poses)
+        });
+    }, 2000)
 }
 
 
@@ -73,7 +92,7 @@ function modelReady() {
 
 // draw() will not show anything until poses are found
 function draw(poses) {
-    if (poses.length > 0) {
+    if (poses != null && poses.length > 0) {
         image(img, 0, 0, width, height)
         drawSkeleton(poses)
         drawKeypoints(poses)

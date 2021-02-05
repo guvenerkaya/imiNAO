@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <script src="http://static.robotwebtools.org/EventEmitter2/current/eventemitter2.min.js"></script>
+    <script src="http://static.robotwebtools.org/roslibjs/current/roslib.min.js"></script>
+    <script src="http://cdnjs.cloudflare.com/ajax/libs/three.js/r71/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet"></script>
+    <!-- <script src="p5.min.js"></script>
+    <script src="p5.dom.min.js"></script>
+    <script src="ml5.min.js" type="text/javascript"></script> -->
+    <script>
+    // these two lines contain the base64-encoded images to turn on- and off the application.
+        var RECORD_ON ="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAMAAAAp4XiDAAAASFBMVEUAAAAAAADMzMz/AABmZmaZmZnMAABmAACZAAAzAAAzMzP/MzPMZmaZMzPMMzP/MwD/////Zmb/ZgBmMzPMmZmZZmb/mQD/mZlxvxKlAAAAAXRSTlMAQObYZgAAAAFiS0dEAIgFHUgAAAAJcEhZcwAACxMAAAsTAQCanBgAAAAHdElNRQffCBIMMyVTqZicAAACK0lEQVRIx43W63aDIAwA4KJJhVjrVtfu/d90kASIFlzzp5fDd5KAgJdLJwa8fB6YYojBXz4EQw1EgNPxAGDHqzpDBqDV0EN5DDoToIhagkSAOwb2DIEBRLEWINJf2DQspCQ7AwiUy0M69pEFyCR/xZCl4cTE/CgQtYoU2xZC2J6YiXNHA3ai4uApRwjaj+RBs+JWpKHLcrstiyAz3WjFUFJMk4/jf39+fqPyCdXJLmmwzi4L7+8a8avPhlwtzSQRcY0x3+9z+mSz8bSY0jRJWoEirtdxlM+IluczEXA7In+FbVm8jJ9jqIpmC2nBSjc6XXFZwvS83XwC4/wdI5pRDLczUE6TSJoPisRrDhNCkqFSmTY/pN6ZpIo05pguGZk1qawSKL3PxnznNIGHkDSjK1/q4tZNnlFI0CdNCeiTooRjXVfTTV5PJnggWTxejzNCDfJ6PdYWGd6zXHOWR7ewXi/jOrYJ8PbCvFH8cSGFlBmjQoZC/Dup68LbjAmWR39fWaOu1MRFCNg0rWesrCQTU1njuaxPZW1lX1neYRXwvgy1rkLQGN2WZVOWJHFPDZBPMUTXMVZAvZ+gnolqfBlvT6VEymGJelzryedL7M4+MFdTvIwAnDn8JnPCupbgO7KaeijHLz1xNKzseBVweTPketEQQgDagLAhssFWIl6P5j3OpK5QzgB8lXVufiFoFkl/n71fZIPlDeYsxa64+l7yH1BFUAv6ANgZ7wz/A295IO9de7kCAAAAAElFTkSuQmCC";
+        var RECORD_OFF = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyBAMAAADsEZWCAAAAFVBMVEVvcm0AAAAzMzNmZmbMzMyZmZn///8pcdebAAAAAXRSTlMAQObYZgAAAAFiS0dEAIgFHUgAAAAJcEhZcwAACxMAAAsTAQCanBgAAAAHdElNRQffCBINBR5qfIr6AAABv0lEQVQ4y22UQZaCMAyGffo8QED3Q9E9EDmAYzrrgZIbzJv7H2GStFLLmA22H/+fWNLsdi/hd2+DeSHP/A6Qhg9duX/AhVJskAGPoyLsNmACjVrQkMFe3u0hxUKPj5W0BqoWh0YeSxbtb2o1xvyNGPqnCMkLYPr6/SEOABcKqeKbF8mV2UE1KgHysbyDStaQTCKKR8GpYHDoIJVuJ3hcyJZVK1ZanFbuv5XQIypaRBycoupkdkx3kzhBg3NOMl2j3UJ9LS+6NRCufSLyq9KtqBFVPWmi4+KBoUbZkQoUiMHniZTcYYYqmylpjUgBdyVohu2s5HxOpDdiSWbNA3UlZR/lBBqw/CYyIkenRL9ZqjfVFgln0vJckiaTkIkvNYXba57WZRLku03xPHPo2sj9DamVLFuiFZ2pE2IfbkNOQnY32hBdXrR7RoLSzhrhYWQqRNYj/NB281MhsrZiVGJtuYpiw7E16RiajGIrYrxdGHooo0ZMdxQ3BJ8XErHfSrrnxcamlOB65Qu/K+bbLWTOXrxKDKU/JU3I/DoQDsjMgwmYyyFyGNkGj4ykgOXgET8bSf+AqAZ1DIhvBhwivu7/ATYxlvOTH50RAAAAAElFTkSuQmCC";
+
+        var cameraTimer;
+
+        // setup connection to the ROS server and prepare the topic
+        var ros = new ROSLIB.Ros();
+
+        ros.on('connection', function() { console.log('Connected to websocket server.');});
+
+        ros.on('error', function(error) { console.log('Error connecting to websocket server: ', error); window.alert('Error connecting to websocket server'); });
+
+        ros.on('close', function() { console.log('Connection to websocket server closed.');});
+
+        var cameraListener = new ROSLIB.Topic({
+            ros : ros,
+            name : '/perceptor/ImageConverted',
+            messageType : 'std_msgs/String'
+        });
+
+        var posePublisher = new ROSLIB.Topic({
+            ros : ros,
+            name : '/perceptor/poses',
+            messageType : '/perceptor/Poses'
+        });
+
+    </script>
+</head>
+
+<!-- declare interface and the canvases that will display the video and the still shots -->
+<body>
+    <p id="status">Loading model...</p>
+    <img id="camera_stream" style='height: 240px; width: 320px; object-fit: contain'>
+    <button id="startstop" style="outline-width: 0; background-color: transparent; border: none"><img id="startstopicon" src=""/></button>
+
+<script type="text/javascript">
+
+function publishPose(pose){
+    var pose_msg = new ROSLIB.Message({
+        poses : [pose]
+    });
+    posePublisher.publish(pose_msg)
+    console.log(pose_msg)
+}
+
+
+// turning on and off the timer that triggers sending pictures information several times a second
+//startstopicon.addEventListener('click', function(ev){
+    if(cameraTimer == null) {
+            ros.connect("ws://" + window.location.hostname + ":9090");
+            cameraTimer = setInterval(function(){
+
+                cameraListener.subscribe(function(message) {
+                    image = document.getElementById('camera_stream')
+                    image.src = "data:image/png;base64," + message.data;
+                    posenet.load().then(function(net) {
+                        const pose = net.estimateSinglePose(image, {
+                            imageScaleFactor: 0.75,
+                            flipHorizontal: true,
+                            outputStride: 16,
+                            scoreThreshold: 0.8,
+                            nmsRadius: 30
+                        });
+                        return pose;
+                    }).then(function(pose){
+                        publishPose(pose)
+                    })
+                    cameraListener.unsubscribe();
+                });
+            
+            }, 250)       // publish an image 4 times per second
+
+        document.getElementById('startstopicon').setAttribute('src', RECORD_ON);
+    } else {
+        ros.close();
+        clearInterval(cameraTimer);
+        document.getElementById('startstopicon').setAttribute('src', RECORD_OFF);
+        cameraTimer = null;
+    }
+//}, false);
+</script>
+<!-- <script src="sketch.js"></script> -->
+</body>
+</html>

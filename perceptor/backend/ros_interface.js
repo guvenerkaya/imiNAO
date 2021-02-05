@@ -1,23 +1,6 @@
 #!/usr/bin/env node
 'use strict'
 
-/* const rosnodejs = require('rosnodejs')
-const sensorMsgs = rosnodejs.require('sensor_msgs')
-rosnodejs.initNode('/posenet')
-.then(() => {
-    const nh = rosnodejs.nh;
-    const sub = nh.subscribe('/nao_robot/camera/bottom/camera/image_raw', sensorMsgs.msg.Image, (data) => {
-        if (data.encoding == 'bgr8'){
-            // Change the encoding to rgb8 
-            // Atm not implemented, this means red is blue and vice versa which leads to worse results
-            // data.data = swapChannels(data.data)
-            data.encoding = 'rgb8';
-        }
-        console.log('Got msg on chatter: %j %j', data.height, data.width)
-    })
-})
-*/
-
 global.XMLHttpRequest = require("xhr2")
 const assert = require("assert")
 // Main requirements
@@ -66,13 +49,13 @@ async function run() {
     let image_height = 0;
     let header = null;
     // Parameters for posenet
-    const imageScaleFactor = await getParam('image_scale_factor', 0.5)
+    const imageScaleFactor = await getParam('image_scale_factor', 0.75)
     const flipHorizontal = await getParam('flip_horizontal', false)
     const outputStride = await getParam('output_stride', 16)
     const maxPoseDetections = await getParam('max_pose', 5)
     const scoreThreshold = await getParam('score_threshold', 0.5)
     const nmsRadius = await getParam('nms_radius', 20)
-    const multiPerson = await getParam('multiPerson', false)
+    const multiPerson = await getParam('multiPerson', true)
     // topic names
     const camera_topic = await getParam('topic','/nao_robot/camera/bottom/camera/image_raw')
     const output_topic = await getParam('poses_topic','/perceptor/poses')
@@ -100,18 +83,22 @@ async function run() {
     const DetectingPoses = async function (){
     if (newBuffer == false)  return
         let tensor = tf.tensor3d(buffer, [image_height,image_width,3], 'int32')
+
+        //tensor = tf.browser.toPixels(tensor)
+        //console.log(tensor)
+
         newBuffer = false;
         let pose_msg = new pose_msgs.Poses()
         
         if (multiPerson === true) {
-            const poses = await net.estimateMultiplePoses(tensor, {
+            const poses = await net.estimateMultiplePoses(tensor, 
                 imageScaleFactor,
                 flipHorizontal,
                 outputStride,
                 maxPoseDetections, 
                 scoreThreshold,
                 nmsRadius
-            })
+            )
 
             for (let i = 0; i < poses.length; i++){
                 pose_msg.poses.push(new pose_msgs.Pose())
@@ -126,10 +113,12 @@ async function run() {
             }           
         } else {
             const poses = await net.estimateSinglePose(tensor, {
-                imageScaleFactor,
-                flipHorizontal,
-                outputStride}
-            )
+                //imageScaleFactor,
+                flipHorizontal
+                //outputStride,
+                //scoreThreshold,
+                //nmsRadius
+            })
             pose_msg.poses.push(new pose_msgs.Pose())
             let i = 0;
             pose_msg.poses[i]["score"] = poses["score"];
@@ -141,7 +130,6 @@ async function run() {
                 pose_msg.poses[i].keypoints[k].position.y = poses["keypoints"][k]["position"]["y"];
             }
         }
-        
         tensor.dispose()
         pub.publish(pose_msg)
     }
