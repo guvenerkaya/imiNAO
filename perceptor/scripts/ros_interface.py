@@ -4,14 +4,27 @@
 import rospy 
 import numpy as np
 from sensor_msgs.msg import Image
-from perceptor.msg import Poses
+from perceptor.msg import Poses, Pose, Keypoint
 from cv_bridge import CvBridge, CvBridgeError
 import cv2
 
+
+# information for skeleton
+connected_part_names = [
+['leftHip', 'leftShoulder'], ['leftElbow', 'leftShoulder'],
+['leftElbow', 'leftWrist'], ['leftHip', 'leftKnee'],
+['leftKnee', 'leftAnkle'], ['rightHip', 'rightShoulder'],
+['rightElbow', 'rightShoulder'], ['rightElbow', 'rightWrist'],
+['rightHip', 'rightKnee'], ['rightKnee', 'rightAnkle'],
+['leftShoulder', 'rightShoulder'], ['leftHip', 'rightHip']]
+
+
 class Perceptor:
     def __init__(self, camera):
-        self.camera = camera
 
+        self.img = None
+
+        self.camera = camera
         # camera matrix parameters for NAO camera; given through tutorial
         self.cameraMatrix = np.array([[551.543059,  0.000000  , 327.382898],
                                       [0.000000  ,  553.736023, 225.026380],
@@ -20,76 +33,54 @@ class Perceptor:
         # distortion parameters of NAO camera; given through tutorial
         self.distCoeffs = np.array([-0.066494,0.095481,-0.000279,0.002292,0.000000])
 
+        rospy.init_node("perceptor_node", anonymous=True)
+        self.img_sub = rospy.Subscriber("/nao_robot/camera/"+self.camera+"/camera/image_raw", Image, self.image_cb)
+        self.pose_sub  = rospy.Subscriber("/perceptor/poses", Poses, self.poses_cb)
+
     def image_cb(self, data):
-        bridge_instance = CvBridge()
-        try:
-            cv_image = bridge_instance.imgmsg_to_cv2(data, "bgr8")
-            
-            #Convert to grayscale image
-            cv_gray_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
+        # bridge_instance = CvBridge()
+        # try:
+        #     self.img = bridge_instance.imgmsg_to_cv2(data, "bgr8")
+        # except CvBridgeError as e:
+        #     rospy.logerr(e) 
+        self.img = np.zeros((240,320,3))
 
-            cv2.imshow(self.camera + " Camera Images", cv_image)
-            cv2.waitKey(2)
+    def poses_cb(self, poses_msg):
+        self.draw(poses_msg.poses)
 
-        except CvBridgeError as e:
-            rospy.logerr(e)
-
-    
 
     # draw() will not show anything until poses are found
-    def draw(poses):
+    def draw(self, poses):
         if len(poses) > 0:
-            image(img, 0, 0, width, height)
-            drawSkeleton(poses)
-            drawKeypoints(poses)
-            noLoop() # stop looping when the poses are estimated
+            self.drawKeypoints(poses)
+            self.drawSkeleton(poses)
+        print(poses)
+        cv2.imshow("keypoints", self.img)
+        cv2.waitKey(3)
     
     # A function to draw ellipses over the detected keypoints
     def drawKeypoints(self, poses):
         # Loop through all the poses detected
         for pose in poses:
+            self.keypoint_dict = {}
             # For each pose detected, loop through all the keypoints
             for keypoint in pose.keypoints:
                 # A keypoint is an object describing a body part (like rightArm or leftShoulder)
-                # Only draw an ellipse is the pose probability is bigger than 0.2
-                if keypoint.score > 0.2:
-                    fill(255)
-                    stroke(20)
-                    strokeWeight(4)
-                    ellipse(round(keypoint.position.x), round(keypoint.position.y), 8, 8)
-
+                if keypoint.score > 0.8:
+                    self.keypoint_dict[keypoint.part] = (int(keypoint.position.x), int(keypoint.position.y))
+                    cv2.circle(self.img, (int(keypoint.position.x), int(keypoint.position.y)), 2, (255, 0, 0), 2)
+   
+        
     # A function to draw the skeletons
     def drawSkeleton(self, poses):
-        img = np.zeros((240,320))
-        #Loop through all the skeletons detected
-        for pose in poses:
-            skeleton = pose.skeleton
-            #For every skeleton, loop through all body connections
-            for j in range(0,len(skeleton)):
-                partA = skeleton[j][0]
-                partB = skeleton[j][1]
-                cv2.line(img,(partA.position.x, partA.position.y),(partB.position.x, partB.position.y),(255,255,255),5)
-        cv2.imshow("keypoints", img)
-
-    
-    def poses_cb(self, data):
-        self.drawSkeleton(data)
-
-    def run(self):
-        rospy.init_node("my_subscriberNode", anonymous=True)
-        rospy.Subscriber("/nao_robot/camera/"+self.camera+"/camera/image_raw", Image, self.image_cb)
-        rospy.spin()
-
-
-    def run2(self):
-        rospy.init_node("my_subscriberNode", anonymous=True)
-        rospy.Subscriber("/perceptor/poses", Poses, self.poses_cb)
-        rospy.spin()
-
+        # draw skeleton
+        for connected_part1, connected_part2 in connected_part_names:
+            if all(k in self.keypoint_dict for k in (connected_part1, connected_part2)):
+                cv2.line(self.img, self.keypoint_dict[connected_part1], self.keypoint_dict[connected_part2], (0,0,255), 3)
 
 if __name__ == '__main__':
     try:
         perceptor = Perceptor("top")
-        perceptor.run2()
+        rospy.spin()
     except rospy.ROSInterruptException:
         pass

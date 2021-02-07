@@ -43,7 +43,6 @@
 
 <!-- declare interface and the canvases that will display the video and the still shots -->
 <body>
-    <p id="status">Loading model...</p>
     <img id="camera_stream" style='height: 240px; width: 320px; object-fit: contain'>
     <button id="startstop" style="outline-width: 0; background-color: transparent; border: none"><img id="startstopicon" src=""/></button>
 
@@ -54,23 +53,51 @@ function publishPose(pose){
         poses : [pose]
     });
     posePublisher.publish(pose_msg)
-    console.log(pose_msg)
 }
 
 
 // turning on and off the timer that triggers sending pictures information several times a second
 //startstopicon.addEventListener('click', function(ev){
-    if(cameraTimer == null) {
-            ros.connect("ws://" + window.location.hostname + ":9090");
-            cameraTimer = setInterval(function(){
+    const options = {
+        architecture: 'ResNet50',
+        inputResolution: { width: 320, height: 240 }
+    }
 
+    if(cameraTimer == null) {
+            ros.connect("ws://" + window.location.hostname + ":9090")
+
+            posenet.load(options).then(function(net){
+                console.log("model loaded ...")
+                setInterval(function(){
+                    cameraListener.subscribe(function(message){
+                        image = document.getElementById("camera_stream")
+                        image.src = "data:image/png;base64," + message.data
+                        image.onload = function() { 
+                            net.estimateSinglePose(image, {
+                                imageScaleFactor: 1,
+                                flipHorizontal: false,
+                                outputStride: 16,
+                                scoreThreshold: 0.8,
+                                nmsRadius: 30
+                            }).then(function(pose){
+                                publishPose(pose)
+                            })
+                            cameraListener.unsubscribe()
+                        }
+                    })
+                }, 20)
+            })
+           
+            /*
+            cameraTimer = setInterval(function(){
                 cameraListener.subscribe(function(message) {
                     image = document.getElementById('camera_stream')
-                    image.src = "data:image/png;base64," + message.data;
+                    image.src = "data:image/png;base64," + message.data
+                  
                     posenet.load().then(function(net) {
                         const pose = net.estimateSinglePose(image, {
-                            imageScaleFactor: 0.75,
-                            flipHorizontal: true,
+                            imageScaleFactor: 0.5,
+                            flipHorizontal: false,
                             outputStride: 16,
                             scoreThreshold: 0.8,
                             nmsRadius: 30
@@ -79,11 +106,10 @@ function publishPose(pose){
                     }).then(function(pose){
                         publishPose(pose)
                     })
-                    cameraListener.unsubscribe();
-                });
-            
-            }, 250)       // publish an image 4 times per second
-
+                })
+                cameraListener.unsubscribe()            
+            }, 2000) // publish an image once each 2 seconds
+            */
         document.getElementById('startstopicon').setAttribute('src', RECORD_ON);
     } else {
         ros.close();

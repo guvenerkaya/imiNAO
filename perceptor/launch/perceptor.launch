@@ -10,7 +10,7 @@
 
   <!--<node pkg="perceptor" type="ros_interface.py" name="perceptor" required="true" args="$(arg nao_ip) $(arg nao_port)" output="screen"/>-->
 
-  <node pkg="perceptor" type="ros_interface.js" name="perceptor" output="screen">
+  <!--<node pkg="perceptor" type="ros_interface.js" name="perceptor" output="screen">
       <param name="topic" value="/nao_robot/camera/bottom/camera/image_raw" />
       <param name="multiPerson" value="false" />
       <param name="gpu" value="true" />
@@ -22,5 +22,11 @@
       <param name="max_pose" value="5" />
       <param name="score_threshold" value="0.5" />
       <param name="nms_radius" value="20" />
-  </node>
+  </node>-->
+
+
+  <node pkg="perceptor" type="image_converter.py" name="image_converter" output="screen" />
+  <include file="$(find rosbridge_server)/launch/rosbridge_websocket.launch" > 
+     <arg name="port" value="9090"/>
+  </include>
 </launch>

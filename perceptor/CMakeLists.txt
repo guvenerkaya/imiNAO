@@ -24,6 +24,7 @@ include_directories(
   ${catkin_INCLUDE_DIRS}
 )
 
-catkin_install_python(PROGRAMS ./backend/ros_interface.js
+catkin_install_python(PROGRAMS ./backend/ros_interface.js 
+                               ./backend/image_converter.py
     DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
