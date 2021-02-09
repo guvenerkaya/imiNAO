@@ -4,6 +4,7 @@
 import rospy 
 import numpy as np
 from sensor_msgs.msg import Image
+from std_msgs.msg import String
 from perceptor.msg import Poses, Pose, Keypoint
 from cv_bridge import CvBridge, CvBridgeError
 import cv2
@@ -36,18 +37,51 @@ class Perceptor:
         rospy.init_node("perceptor_node", anonymous=True)
         self.img_sub = rospy.Subscriber("/nao_robot/camera/"+self.camera+"/camera/image_raw", Image, self.image_cb)
         self.pose_sub  = rospy.Subscriber("/perceptor/poses", Poses, self.poses_cb)
+        self.depth_pub = rospy.Publisher('/perceptor/depth', String, queue_size=10)
 
     def image_cb(self, data):
-        # bridge_instance = CvBridge()
-        # try:
-        #     self.img = bridge_instance.imgmsg_to_cv2(data, "bgr8")
-        # except CvBridgeError as e:
-        #     rospy.logerr(e) 
         self.img = np.zeros((240,320,3))
+
+        bridge_instance = CvBridge()
+        try:
+            img = bridge_instance.imgmsg_to_cv2(data, "bgr8")
+            ball_area = self.detect_based_on_color(img)
+            self.depth_pub.publish(str(ball_area))
+
+        except CvBridgeError as e:
+            rospy.logerr(e) 
 
     def poses_cb(self, poses_msg):
         self.draw(poses_msg.poses)
 
+
+    def detect_based_on_color(self, cv_image):
+        # Red detection -- 2 masks required
+        cv_image = cv2.GaussianBlur(cv_image,(5,5),0)
+        hsv = cv2.cvtColor(cv_image, cv2.COLOR_BGR2HSV)
+        lower_range1 = np.array([0,140,0])
+        upper_range1 = np.array([15,255,255])
+        mask1 = cv2.inRange(hsv, lower_range1, upper_range1)
+
+        lower_range2 = np.array([170,140,0])
+        upper_range2 = np.array([185,255,255])
+        mask2 = cv2.inRange(hsv, lower_range2, upper_range2)
+
+        mask = mask1 + mask2
+
+        # Convert mask to binary image
+        ret,thresh = cv2.threshold(mask,127,255,0)
+
+        # Find countours in the binary image
+        im2, contours, hierarchy = cv2.findContours(thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        contour_sizes = [(cv2.contourArea(contour), contour) for contour in contours]
+
+        biggest_contour = max(contour_sizes, key=lambda x: x[0])[1]
+        
+        #Debug display
+        cv2.imshow("object mask", mask)
+        cv2.waitKey(3)
+        return cv2.contourArea(biggest_contour)
 
     # draw() will not show anything until poses are found
     def draw(self, poses):

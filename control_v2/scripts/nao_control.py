@@ -27,55 +27,79 @@ class Control:
         self.stiffness = False  
         self.key = ""
         self.poses = None
-
+        self.depth = None
 
         self.robotIP=str(sys.argv[1])
         self.PORT=int(sys.argv[2])
         print(sys.argv[2])
         self.motionProxy = ALProxy("ALMotion", self.robotIP, self.PORT)
 
+        # create several topic subscriber
         rospy.init_node('central_node', anonymous=True) # init node, sets name
-        self.poses_sub = rospy.Subscriber("/perceptor/poses", Poses, self.poses_data) # for joint states
-
-        # init_posture, Zero (NOT "T-position")
+        self.poses_sub = rospy.Subscriber("/perceptor/poses", Poses, self.poses_data) # for pose states
+        self.depth_sub = rospy.Subscriber("/perceptor/depth", String, self.depth_data) # for depth state
         rospy.Subscriber("joint_states", JointState, self.joints_data) # for joint states
         self.joint_pub = rospy.Publisher("joint_angles", JointAnglesWithSpeed, queue_size=10)
+
+
+        # init_posture, Zero (first "0-Pose" going to "T-position")
         postureProxy = ALProxy("ALRobotPosture", self.robotIP, self.PORT)
         postureProxy.goToPosture("StandZero", 0.6)
         rospy.sleep(0.5)
-        self.set_joint_angles(0,1.1,0,-1.1,0,0,0,0,0,0,0)
+        self.set_joint_angles(0,1.1,0,-1.1,0,0,0,0,0,0,0,0,0)
         rospy.sleep(0.5)
 
 
+    #get depth
+    def depth_data(self, data):
+        self.depth = float(data.data)
+    # react on keyboard input
     def keyboard_data(self,data):
         # rospy.loginfo(rospy.get_caller_id() + "I heard %s", data.data)
         self.key = data.data
 
+    # store current joint information in class variables
     def joints_data(self,data):
         # rospy.loginfo("joint states "+str(data.name)+str(data.position))
-        # store current joint information in class variables
         self.joint_names = data.name
         self.joint_angles = data.position
         self.joint_velocities = data.velocity
 
     def poses_data(self, poses_msg):
+        if self.depth != None:
+            x = self.depth
+            min_depth,max_depth = 60,110 
+            angle_right_elbow_yaw = -90/(max_depth-min_depth)*(x-min_depth) + 90
+
         self.poses = poses_msg.poses
+
         angle_left_elbow = self.convert_poses(self.poses, "leftElbow")
         angle_right_elbow = self.convert_poses(self.poses, "rightElbow")
-        #angles = [0, 0, 0, 0, 0, 0, 0, theta, 0, 0]
-        self.set_joint_angles(Lshoulder_angle = 0,
-                              LShoulderRoll_angle = 1.1, 
-                              Rshoulder_angle = 0, 
-                              RShoulderRoll_angle = -1.1, 
-                              Head_angle = 0, 
-                              LElbowRoll_angle = -angle_left_elbow,
-                              RElbowRoll_angle = angle_right_elbow,
-                              LElbowYaw_angle = 0,
-                              RElbowYaw_angle = 0,
-                              LWristYaw_angle = 0,
-                              RWristYaw_angle = 0)
+        angle_right_elbow_yaw = self.degree_to_rad_convertion([angle_right_elbow_yaw])[0]
+        angle_right_shoulder = self.convert_poses(self.poses, "rightShoulder")
+        angle_left_shoulder = self.convert_poses(self.poses, "leftShoulder")
+        #angle_right_elbow = self.convert_poses_rot(self.poses, "RightLowArm")
+        angle_right_knee = self.convert_poses(self.poses, "rightKnee")
+        angles = [-angle_left_shoulder, 1.1, angle_right_shoulder, -1.1, 0, -angle_left_elbow, angle_right_elbow, angle_left_elbow, angle_right_elbow_yaw, 0, 0, 0, 0]
+        angles = self.joint_clamp(angles) # check the limits (and adjust)
+
+        self.set_joint_angles(Lshoulder_angle       = angles[0],
+                              LShoulderRoll_angle   = angles[1], 
+                              Rshoulder_angle       = angles[2], 
+                              RShoulderRoll_angle   = angles[3], 
+                              Head_angle            = angles[4], 
+                              LElbowRoll_angle      = angles[5],
+                              RElbowRoll_angle      = angles[6],
+                              LElbowYaw_angle       = angles[7],
+                              RElbowYaw_angle       = angles[8],
+                              LWristYaw_angle       = angles[9],
+                              RWristYaw_angle       = angles[10],
+                              LKneePitch_angle      = angles[11],
+                              RKneePitch_angle      = angles[12]
+                              )
         #self.set_pose_joint_space(self.motionProxy, None, angles)
 
+    # convert poses with angles for adressed joints
     def convert_poses(self, poses, joint_name):
         points = []
         
@@ -89,17 +113,52 @@ class Control:
                 if keypoint.part == "leftShoulder" or keypoint.part == "leftElbow" or keypoint.part == "leftWrist":
                     x,y = keypoint.position.x, keypoint.position.y 
                     points.append((x,y))
+        elif joint_name == "rightShoulder":
+            for keypoint in poses[0].keypoints:
+                if keypoint.part == "rightHip" or keypoint.part == "rightShoulder" or keypoint.part == "rightElbow":
+                    x,y = keypoint.position.x, keypoint.position.y
+                    points.append((x,y))
+        elif joint_name == "leftShoulder":
+            for keypoint in poses[0].keypoints:
+                if keypoint.part == "leftHip" or keypoint.part == "leftShoulder" or keypoint.part == "leftElbow":
+                    x,y = keypoint.position.x, keypoint.position.y
+                    points.append((x,y))
+        elif joint_name == "rightKnee":
+            for keypoint in poses[0].keypoints:
+                if keypoint.part == "rightHip" or keypoint.part == "rightKnee" or keypoint.part == "rightAnkle":
+                    x,y = keypoint.position.x, keypoint.position.y
+                    points.append((x,y))
         else:
             print("joint name unkown")
 
         return self.find_angle(points[0], points[1], points[2])
 
+    # calc the requested joint angle pos wrt to the model
     def find_angle(self, p1,p2,p3):
         p12 = math.sqrt(math.pow((p1[0] - p2[0]), 2) + math.pow((p1[1] - p2[1]), 2))
         p13 = math.sqrt(math.pow((p1[0] - p3[0]), 2) + math.pow((p1[1] - p3[1]), 2))
         p23 = math.sqrt(math.pow((p2[0] - p3[0]), 2) + math.pow((p2[1] - p3[1]), 2))
         resultRadian = math.acos(((math.pow(p12, 2)) + (math.pow(p13, 2)) - (math.pow(p23, 2))) / (2 * p12 * p13))
         return resultRadian
+
+
+    def convert_poses_rot(self, poses, joint_name):
+        if joint_name == "RightLowArm":
+            for keypoint in poses[0].keypoints:
+                if keypoint.part == "rightShoulder" or keypoint.part == "rightElbow" or keypoint.part == "rightWrist":
+                    x,y = keypoint.position.x, keypoint.position.y
+                    points.append((x,y))
+        else:
+            print("joint name unkown")
+
+        return self.calc_rot_angle(points[0], points[2])
+
+    def calc_rot_angle(self, p1,p2):
+        p12 = math.sqrt(math.pow((p1[0] - p2[0]), 2) + math.pow((p1[1] - p2[1]), 2))
+        p13 = math.sqrt(math.pow((p1[0] - p3[0]), 2) + math.pow((p1[1] - p3[1]), 2))
+        p23 = math.sqrt(math.pow((p2[0] - p3[0]), 2) + math.pow((p2[1] - p3[1]), 2))
+
+        return
 
     # sets the stiffness for all joints. can be refined to only toggle single joints, set values between [0,1] etc
     def set_stiffness(self,value):
@@ -113,6 +172,7 @@ class Control:
         except rospy.ServiceException, e:
             rospy.logerr(e)
 
+    # set position for requested joints
     def set_joint_angles(self,  Lshoulder_angle,
                                 LShoulderRoll_angle, 
                                 Rshoulder_angle, 
@@ -123,9 +183,12 @@ class Control:
                                 LElbowYaw_angle,
                                 RElbowYaw_angle,
                                 LWristYaw_angle,
-                                RWristYaw_angle):
+                                RWristYaw_angle,
+                                LKneePitch_angle,
+                                RKneePitch_angle):
 
         joint_angles_to_set = JointAnglesWithSpeed()
+        # shoulder joint parameters
         joint_angles_to_set.joint_names.append("LShoulderPitch") # each joint has a specific name, look into the joint_state topic or google
         joint_angles_to_set.joint_angles.append(Lshoulder_angle) # the joint values have to be in the same order as the names!!
         joint_angles_to_set.joint_names.append("LShoulderRoll")
@@ -134,8 +197,10 @@ class Control:
         joint_angles_to_set.joint_angles.append(Rshoulder_angle)
         joint_angles_to_set.joint_names.append("RShoulderRoll")
         joint_angles_to_set.joint_angles.append(RShoulderRoll_angle)
+        # head joint parameters
         joint_angles_to_set.joint_names.append("HeadPitch")
         joint_angles_to_set.joint_angles.append(Head_angle)
+        # elbow joint parameters
         joint_angles_to_set.joint_names.append("LElbowRoll")
         joint_angles_to_set.joint_angles.append(LElbowRoll_angle)
         joint_angles_to_set.joint_names.append("RElbowRoll")
@@ -149,35 +214,47 @@ class Control:
         joint_angles_to_set.joint_angles.append(LWristYaw_angle)
         joint_angles_to_set.joint_names.append("RWristYaw")
         joint_angles_to_set.joint_angles.append(RWristYaw_angle)
+        # knee joint parameters
+        joint_angles_to_set.joint_names.append("LKneePitch")
+        joint_angles_to_set.joint_angles.append(LKneePitch_angle)
+        joint_angles_to_set.joint_names.append("RKneePitch")
+        joint_angles_to_set.joint_angles.append(RKneePitch_angle)
+        # set parameters for joint move
         joint_angles_to_set.relative = False # if true you can increment positions
         joint_angles_to_set.speed = 0.1 # keep this low if you can
         print(joint_angles_to_set.joint_angles)
         self.joint_pub.publish(joint_angles_to_set)
 
-    def joint_clamp(self, angles): #check the requested angle with limits of joints and adjust angles, if necessary
-        #HeadPitch_clamp = ...
+    # check the requested angle with limits of joints and adjust angles, if necessary
+    def joint_clamp(self, angles): 
         #HeadYaw_clamp = ...
 
         #LShoulderPitch    
-        angles[0]= max(-119.5,   min(angles[0],   119.5))
+        angles[0]=  max(-2.0857,    min(angles[0],  2.0857))
         #LShoulderRoll    
-        angles[1]= max(-18,      min(angles[1],   76))
-        #LElbowYaw
-        angles[2]= max(-119.5,   min(angles[2],   119.5))
-        #LElbowRoll
-        angles[3]= max(-88.5,    min(angles[3],   -2))
-        #LWristYaw
-        angles[4]= max(-104.5,   min(angles[4],   104.5))
+        angles[1]=  max(-0.3142,    min(angles[1],  1.3265))
         #RShoulderPitch
-        angles[5]= max(-119.5,   min(angles[5],   119.5))
+        angles[2]=  max(-2.0857,    min(angles[2],  2.0857))
         #RShoulderRoll
-        angles[6]= max(-76,      min(angles[6],   18))
-        #RElbowYaw
-        angles[7]= max(-119.5,   min(angles[7],   119.5))
+        angles[3]=  max(-1.3265,    min(angles[3],  0.3142))
+        #HeadPitch
+        angles[4]=  max(-0.6720,    min(angles[4],  0.5149))
+        #LElbowRoll
+        angles[5]=  max(-1.5446,    min(angles[5],  -0.0349))
         #RElbowRoll
-        angles[8]= max(2,        min(angles[8],   88.5))
+        angles[6]=  max(0.0349,     min(angles[6],  1.5446))
+        #LElbowYaw
+        angles[7]=  max(-2.0857,    min(angles[7],  2.0857))
+        #RElbowYaw
+        angles[8]=  max(-2.0857,    min(angles[8],  2.0857))
+        #LWristYaw
+        angles[9]=  max(-1.8238,    min(angles[9],  1.8238))
         #RWristYaw
-        angles[9]= max(-104.5,   min(angles[9],   104.5))
+        angles[10]= max(-1.8238,    min(angles[9],  1.8238))
+        #LKneePitch
+        angles[11]= max(-0.092346,  min(angles[9],  2.112528))
+        #RKneePitch
+        angles[12]= max(-0.103083,  min(angles[9],  2.120198)) 
 
         return angles
 
@@ -276,39 +353,6 @@ class Control:
         rospy.sleep(0.5)
         self.set_joint_angles(0,1.1,0,-1.1,0,0,0,0,0,0,0)
         rospy.sleep(0.5)
-
-        ''' 
-        DEPRICATED
-        ## get positions of endeffector/joint
-        name = "LArm"
-        frame = 0
-        useSensorValues = True
-
-        
-        ## set position ##
-        effector   = name
-        space      = frame
-        axisMask   = 63
-        isAbsolute = True
-        maxSpeedFraction = 0.5
-        times      = [3, 4]
-
-        # set the current position is zero
-        currentPos = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-
-        # get the changes relative to the current position 
-        targetPos  = [0.05, 0.05, 0.05, 0.0, 0.0, 0.0]
-
-        # Go to the target and back again
-        path = [targetPos, currentPos]
-
-        # if times are set use positionInterpolation otherwise use setPositions
-        # if len(times) > 0:
-        #     self.motionProxy.positionInterpolation(effector, space, path,
-        #                                     axisMask, times, isAbsolute)
-        # else:
-        #     self.motionProxy.setPositions(effector, space, target, maxSpeedFraction, axisMask)
-        '''
 
 
         while True:
