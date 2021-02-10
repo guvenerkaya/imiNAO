@@ -33,6 +33,7 @@ class Control:
         self.PORT=int(sys.argv[2])
         print(sys.argv[2])
         self.motionProxy = ALProxy("ALMotion", self.robotIP, self.PORT)
+        
 
         # create several topic subscriber
         rospy.init_node('central_node', anonymous=True) # init node, sets name
@@ -50,9 +51,10 @@ class Control:
         rospy.sleep(0.5)
 
 
-    #get depth
+    #get depth data from publisher
     def depth_data(self, data):
         self.depth = float(data.data)
+    
     # react on keyboard input
     def keyboard_data(self,data):
         # rospy.loginfo(rospy.get_caller_id() + "I heard %s", data.data)
@@ -65,22 +67,72 @@ class Control:
         self.joint_angles = data.position
         self.joint_velocities = data.velocity
 
+    def depth_data_calib(self,depth):
+        # calibration of depth in current pose; here especially for arm
+        # current_depth = depth # current depth 'x'
+        # min_depth,max_depth = 80,250 # max and min from calibration (90 deg up and 0 deg straight to camera)
+        # angle_right_elbow_yaw = -90/(max_depth-min_depth)*(current_depth-min_depth) + 90
+
+        bound = 100
+        if depth <= bound:
+            angle_right_elbow_yaw = 0
+            angle_right_shoulder_roll = -63
+        else:
+            angle_right_elbow_yaw = 90
+            angle_right_shoulder_roll = 0
+        
+        #angle_right_elbow_yaw = self.depth_orient(angle_right_elbow_yaw)
+        #angle_right_shoulder_roll = self.depth_orient(angle_right_shoulder_roll)
+
+        print("depth: {}, r elbow yaw: {} ".format(self.depth, angle_right_elbow_yaw))
+        print("depth: {}, r shoulder roll: {} ".format(self.depth, angle_right_shoulder_roll))
+        
+        return self.degree_to_rad_convertion([angle_right_elbow_yaw, angle_right_shoulder_roll])
+
+    def depth_orient(self, angle):
+        points = []
+        poses = self.poses
+        for keypoint in poses[0].keypoints:
+                if keypoint.part == keypoint.part == "rightElbow" or keypoint.part == "rightWrist":
+                    x,y = keypoint.position.x, keypoint.position.y 
+                    points.append((x,y))
+        p1=points[0]
+        p2=points[1]
+        p12 = (p1[0] - p2[0]) + (p1[1] - p2[1])
+        if p12 < 0:
+            return -angle
+        else:
+            return angle
+
+
     def poses_data(self, poses_msg):
-        if self.depth != None:
-            x = self.depth
-            min_depth,max_depth = 60,110 
-            angle_right_elbow_yaw = -90/(max_depth-min_depth)*(x-min_depth) + 90
 
         self.poses = poses_msg.poses
 
+        # posture setting for elbow rolls
         angle_left_elbow = self.convert_poses(self.poses, "leftElbow")
         angle_right_elbow = self.convert_poses(self.poses, "rightElbow")
-        angle_right_elbow_yaw = self.degree_to_rad_convertion([angle_right_elbow_yaw])[0]
+        # posture setting for shoulder pitches
         angle_right_shoulder = self.convert_poses(self.poses, "rightShoulder")
         angle_left_shoulder = self.convert_poses(self.poses, "leftShoulder")
+        # posture depth for elbow yaw
+        if self.depth != None:
+            angle_right_elbow_yaw = self.depth_data_calib(self.depth)[0]
+            angle_right_shoulder_roll = self.depth_data_calib(self.depth)[1]
+            angle_left_elbow_yaw = -angle_right_elbow_yaw
+            angle_left_shoulder_roll = -angle_right_shoulder_roll
+        else:
+            angle_right_elbow_yaw = 0
+            angle_left_elbow_yaw = 0
+            angle_right_shoulder_roll = 0
+            angle_left_shoulder_roll = 0
         #angle_right_elbow = self.convert_poses_rot(self.poses, "RightLowArm")
         angle_right_knee = self.convert_poses(self.poses, "rightKnee")
-        angles = [-angle_left_shoulder, 1.1, angle_right_shoulder, -1.1, 0, -angle_left_elbow, angle_right_elbow, angle_left_elbow, angle_right_elbow_yaw, 0, 0, 0, 0]
+    
+        # put calculated joints into an array to prepare to publish
+        angles =    [angle_left_shoulder, angle_left_shoulder_roll, angle_right_shoulder, angle_right_shoulder_roll] # shoulder joints
+        angles +=   [-0.2, -angle_left_elbow, angle_right_elbow, angle_left_elbow_yaw, angle_right_elbow_yaw] # head & elbow joints
+        angles +=   [0, 0, 0, 0] # wrist & knee joints
         angles = self.joint_clamp(angles) # check the limits (and adjust)
 
         self.set_joint_angles(Lshoulder_angle       = angles[0],
@@ -222,7 +274,6 @@ class Control:
         # set parameters for joint move
         joint_angles_to_set.relative = False # if true you can increment positions
         joint_angles_to_set.speed = 0.1 # keep this low if you can
-        print(joint_angles_to_set.joint_angles)
         self.joint_pub.publish(joint_angles_to_set)
 
     # check the requested angle with limits of joints and adjust angles, if necessary
@@ -317,7 +368,6 @@ class Control:
                 print "-------------------------------------"
                 exit(1)
         else:
-            print(angles)
             # check the max. angle of joints
             angles = self.joint_clamp(angles)
 
@@ -355,376 +405,318 @@ class Control:
         rospy.sleep(0.5)
 
 
-        while True:
-            if self.key == 'h': # set the selected joints in 'Zero position'
-                #self.set_joint_angles(0,0,0,0,0,0,0,0,0,0,0,0)
-                postureProxy.goToPosture("StandZero", 0.5)
-            elif self.key == 'i': # set the init 'T-position'
-                self.set_joint_angles(0,1.1,0,-1.1,0,0,0,0,0,0,0)
-                rospy.sleep(1.0)
-            elif self.key == 'g': # get position
-                '''DEPRECATED; not used for this project anymore
-                # cartesian: get position
-                if obtain_pos == 0:
-                    print("requested joint: {}".format(name))
-                    current = self.motionProxy.getPosition(name, frame, useSensorValues)
-                    print("Position (meters) of {} in Torso is:\nx = {},\ny = {},\nz = {}"
-                                                                .format(name,
-                                                                        current[0],
-                                                                        current[1],
-                                                                        current[2]))
-                    print("Orientation (radians) of {} in Torso is:\nroll  = {},\npitch = {},\nyaw   = {}"
-                                                                .format(name,
-                                                                        current[3], 
-                                                                        current[4], 
-                                                                        current[5]))
-                    print("=====================================================")
-                    obtain_pos = 1'''
+        # while True:
+        #     if self.key == 'h': # set the selected joints in 'Zero position'
+        #         #self.set_joint_angles(0,0,0,0,0,0,0,0,0,0,0,0)
+        #         postureProxy.goToPosture("StandZero", 0.5)
+        #     elif self.key == 'i': # set the init 'T-position'
+        #         self.set_joint_angles(0,1.1,0,-1.1,0,0,0,0,0,0,0)
+        #         rospy.sleep(1.0)
+        #     elif self.key == 'g': # get position
+        #         '''DEPRECATED; not used for this project anymore
+        #         # cartesian: get position
+        #         if obtain_pos == 0:
+        #             print("requested joint: {}".format(name))
+        #             current = self.motionProxy.getPosition(name, frame, useSensorValues)
+        #             print("Position (meters) of {} in Torso is:\nx = {},\ny = {},\nz = {}"
+        #                                                         .format(name,
+        #                                                                 current[0],
+        #                                                                 current[1],
+        #                                                                 current[2]))
+        #             print("Orientation (radians) of {} in Torso is:\nroll  = {},\npitch = {},\nyaw   = {}"
+        #                                                         .format(name,
+        #                                                                 current[3], 
+        #                                                                 current[4], 
+        #                                                                 current[5]))
+        #             print("=====================================================")
+        #             obtain_pos = 1'''
                     
-            elif self.key == 'r': 
-                '''DEPRECATED; not used for this project anymore
-                # cartesian: set position interpolation in relative values
-                if obtain_pos == 1:
-                    dx = targetPos[0] + current[0]
-                    dy = targetPos[1] + current[1]
-                    dz = targetPos[2] + current[2]
-                    droll  = targetPos[3]  + current[3]
-                    dpitch = targetPos[4]  + current[4]
-                    dyaw   = targetPos[5]   + current[5]
+        #     elif self.key == 'r': 
+        #         '''DEPRECATED; not used for this project anymore
+        #         # cartesian: set position interpolation in relative values
+        #         if obtain_pos == 1:
+        #             dx = targetPos[0] + current[0]
+        #             dy = targetPos[1] + current[1]
+        #             dz = targetPos[2] + current[2]
+        #             droll  = targetPos[3]  + current[3]
+        #             dpitch = targetPos[4]  + current[4]
+        #             dyaw   = targetPos[5]   + current[5]
 
-                    targetPos = [dx, dy, dz, droll, dpitch, dyaw]
-                    self.motionProxy.positionInterpolation(effector, space, path,
-                                            axisMask, times, isAbsolute)
-                    print("motion completed")
-                    obtain_pos = 0'''
-
-            elif self.key == 'a':
-                '''DEPRECATED; not used for this project anymore
-                # cartesian: set position interpolation in absolute values
-                if obtain_pos == 1:
-                    
-                    self.motionProxy.positionInterpolation(effector, space, path,
-                                            axisMask, times, isAbsolute)
-                    print("motion completed")
-                    obtain_pos = 0'''
-
-            elif self.key == 'f': #refresh setting para
-                obtain_pos = 0
-                progress = 0
-
-            elif self.key == 't': 
-                # times interpolations; here: 'Head' (split in 'HeadYaw' & 'HeadPitch')
-                names      = ["HeadYaw", "HeadPitch"]
-                angleLists = [[1.0, -1.0, 1.0, -1.0], [-1.0]]
-                times      = [[1.0,  2.0, 3.0,  4.0], [ 5.0]]
-                isAbsolute = False
-                self.motionProxy.angleInterpolation(names, angleLists, times, isAbsolute)
-
-            elif self.key == 'c': 
-                # reactive control without interpolation; 
-
-                #here: 'LArm & RArm together'
-                names = ["LShoulderPitch", "LShoulderRoll", "LElbowYaw"] 
-                names += ["LElbowRoll", "LWristYaw", "LHand"]
-                names += ["RShoulderPitch", "RShoulderRoll", "RElbowYaw"]
-                names += ["RElbowRoll", "RWristYaw", "RHand"]
-                fractionMaxSpeed = 0.15
-
-                # target
-                angles = [10*almath.TO_RAD, -10*almath.TO_RAD, 10*almath.TO_RAD]
-                angles += [-10*almath.TO_RAD, 10*almath.TO_RAD, 1]
-                angles += [10*almath.TO_RAD, 10*almath.TO_RAD, 10*almath.TO_RAD]
-                angles += [10*almath.TO_RAD, 10*almath.TO_RAD, 1]
-                self.motionProxy.setAngles(names,angles,fractionMaxSpeed)
-                # wait half a second
-                #time.sleep(0.5)
-                time.sleep(3.0)
-
-                # change target
-                angles = [0*almath.TO_RAD, 70*almath.TO_RAD, 0*almath.TO_RAD]
-                angles += [0*almath.TO_RAD, 0*almath.TO_RAD, 0]
-                angles += [0*almath.TO_RAD, -70*almath.TO_RAD, 0*almath.TO_RAD]
-                angles += [0*almath.TO_RAD, 0*almath.TO_RAD, 0]
-                self.motionProxy.setAngles(names,angles,fractionMaxSpeed)
-                # wait half a second
-                #time.sleep(0.5)
-                time.sleep(3.0)                
-
-                # change target
-                # ...
-
-
-            elif self.key == 'v': 
-                # reactive control with interpolation; 
-                # if obtain_pos == 1:
-                    #while True: -> or also establish a key press as abortion like 'while not self.key =..'
-                    if progress == 0:
-                        step = "init"
-                        self.set_pose_joint_space(self.motionProxy,step)
-                        progress += 1
-                    elif progress == 1:
-                        step = "update"
-                        self.set_pose_joint_space(self.motionProxy,step)
-                    else:
-                        print "Error occured in setting joint target"
-                        print "-------------------------------------"
-                        exit(1)
-
-                    # here: end of while loop
-
-                    #time.sleep(2.0)
-
-                    # obtain_pos += 0
-
-
-            elif self.key == 'l': 
-                # Example showing how to get the current task list
-                # We will create a task first, so that we see a result
-                names      = "HeadYaw"
-                angleLists = 1.0
-                timeList   = 3.0
-                isAbsolute = True
-                self.motionProxy.post.angleInterpolation(names, angleLists, timeList, isAbsolute)
-                time.sleep(0.1)
-                print 'Tasklist: ', self.motionProxy.getTaskList()
-
-                time.sleep(2.0)
-
-            elif self.key == 'k': 
-                # This function is useful to kill motion Task
-                # To see the current motionTask please use getTaskList() function
-
-                self.motionProxy.post.angleInterpolation('HeadYaw', 90*almath.TO_RAD, 10, True) # (names, angleLists, timeList, isAbsolute)
-                time.sleep(3)
-                taskList = self.motionProxy.getTaskList()
-                uiMotion = taskList[0][1]
-                self.motionProxy.killTask(uiMotion)
-
-                self.motionProxy.setStiffnesses("Head", 0.0)
-
-                # alternative 1): kill move
-                # self.motionProxy.post.moveTo(0.5, 0.0, 0.0)
-                # time.sleep(3.0)
-                # # End the walk suddenly (around 20ms)
-                # self.motionProxy.killMove()
-
-                # alternative 2): kill ALL tasks
-                # # Example showing how to kill all the tasks.
-                # self.motionProxy.killAll()
-                # print "All tasks killed."
-
-            elif self.key == 'o': 
-                # Example showing how to open the left hand
-                self.motionProxy.openHand('LHand')
-                # Example showing how to close the right hand.
-                handName  = 'LHand'
-                self.motionProxy.closeHand(handName)
-
-            elif self.key == 'b': 
-                # Example that finds the difference between the command and sensed angles.
-                names         = "Body"
-                useSensors    = False
-                commandAngles = self.motionProxy.getAngles(names, useSensors)
-                print ("Command angles in 'Head' for 'Body': HeadYaw {}, HeadPitch {}"
-                                                                    .format(commandAngles[0],
-                                                                            commandAngles[1]))          
-                print ""                
-                print ("Command angles in 'LArm' for 'Body': LShoulderPitch {}, LShoulderRoll {}, LElbowYaw {}, LElbowRoll {}, LWristYaw {}, LHand{}"
-                                                                    .format(commandAngles[2],
-                                                                            commandAngles[3],
-                                                                            commandAngles[4],
-                                                                            commandAngles[5],
-                                                                            commandAngles[6],
-                                                                            commandAngles[7])) 
-                print ""                
-                print ("Command angles in 'LLeg' for 'Body': LHipYawPitch {}, LHipRoll {}, LHipPitch {}, LKneePitch {}, LAnklePitch {}, RAnkleRoll{}"
-                                                                    .format(commandAngles[8],
-                                                                            commandAngles[9],
-                                                                            commandAngles[10],
-                                                                            commandAngles[11],
-                                                                            commandAngles[12],
-                                                                            commandAngles[13])) 
-                print ""
-                print ("Command angles in 'RLeg' for 'Body': RHipYawPitch {}, RHipRoll {}, RHipPitch {}, RKneePitch {}, RAnklePitch {}, LAnkleRoll{}"
-                                                                    .format(commandAngles[14],
-                                                                            commandAngles[15],
-                                                                            commandAngles[16],
-                                                                            commandAngles[17],
-                                                                            commandAngles[18],
-                                                                            commandAngles[19])) 
-                print ""
-                print ("Command angles in 'RArm' for 'Body': RShoulderPitch {}, RShoulderRoll {}, RElbowYaw {}, RElbowRoll {}, RWristYaw {}, RHand{}"
-                                                                    .format(commandAngles[20],
-                                                                            commandAngles[21],
-                                                                            commandAngles[22],
-                                                                            commandAngles[23],
-                                                                            commandAngles[24],
-                                                                            commandAngles[25])) 
-                print("=====================================================")
-                print ""
-
-                useSensors  = True
-                sensorAngles = self.motionProxy.getAngles(names, useSensors)
-                print ("Sensor angles in 'Head' for 'Body': HeadYaw {}, HeadPitch {}"
-                                                                    .format(sensorAngles[0],
-                                                                            sensorAngles[1]))          
-                print ""                
-                print ("Sensor angles in 'LArm' for 'Body': LShoulderPitch {}, LShoulderRoll {}, LElbowYaw {}, LElbowRoll {}, LWristYaw {}, LHand{}"
-                                                                    .format(sensorAngles[2],
-                                                                            sensorAngles[3],
-                                                                            sensorAngles[4],
-                                                                            sensorAngles[5],
-                                                                            sensorAngles[6],
-                                                                            sensorAngles[7])) 
-                print ""                
-                print ("Sensor angles in 'LLeg' for 'Body': LHipYawPitch {}, LHipRoll {}, LHipPitch {}, LKneePitch {}, LAnklePitch {}, RAnkleRoll{}"
-                                                                    .format(sensorAngles[8],
-                                                                            sensorAngles[9],
-                                                                            sensorAngles[10],
-                                                                            sensorAngles[11],
-                                                                            sensorAngles[12],
-                                                                            sensorAngles[13])) 
-                print ""
-                print ("Sensor angles in 'RLeg' for 'Body': RHipYawPitch {}, RHipRoll {}, RHipPitch {}, RKneePitch {}, RAnklePitch {}, LAnkleRoll{}"
-                                                                    .format(sensorAngles[14],
-                                                                            sensorAngles[15],
-                                                                            sensorAngles[16],
-                                                                            sensorAngles[17],
-                                                                            sensorAngles[18],
-                                                                            sensorAngles[19])) 
-                print ""
-                print ("Sensor angles in 'RArm' for 'Body': RShoulderPitch {}, RShoulderRoll {}, RElbowYaw {}, RElbowRoll {}, RWristYaw {}, RHand{}"
-                                                                    .format(sensorAngles[20],
-                                                                            sensorAngles[21],
-                                                                            sensorAngles[22],
-                                                                            sensorAngles[23],
-                                                                            sensorAngles[24],
-                                                                            sensorAngles[25])) 
-                print("=====================================================")
-                print ""
-
-                errors = []
-                for i in range(0, len(commandAngles)):
-                    errors.append(commandAngles[i]-sensorAngles[i])
-                print "Errors"
-                print ("Errors in 'Head' for 'Body': HeadYaw {}, HeadPitch {}"
-                                                                    .format(errors[0],
-                                                                            errors[1]))          
-                print ""                
-                print ("Errors in 'LArm' for 'Body': LShoulderPitch {}, LShoulderRoll {}, LElbowYaw {}, LElbowRoll {}, LWristYaw {}, LHand{}"
-                                                                    .format(errors[2],
-                                                                            errors[3],
-                                                                            errors[4],
-                                                                            errors[5],
-                                                                            errors[6],
-                                                                            errors[7])) 
-                print ""                
-                print ("Errors in 'LLeg' for 'Body': LHipYawPitch {}, LHipRoll {}, LHipPitch {}, LKneePitch {}, LAnklePitch {}, RAnkleRoll{}"
-                                                                    .format(errors[8],
-                                                                            errors[9],
-                                                                            errors[10],
-                                                                            errors[11],
-                                                                            errors[12],
-                                                                            errors[13])) 
-                print ""
-                print ("Errors in 'RLeg' for 'Body': RHipYawPitch {}, RHipRoll {}, RHipPitch {}, RKneePitch {}, RAnklePitch {}, LAnkleRoll{}"
-                                                                    .format(errors[14],
-                                                                            errors[15],
-                                                                            errors[16],
-                                                                            errors[17],
-                                                                            errors[18],
-                                                                            errors[19])) 
-                print ""
-                print ("Errors in 'RArm' for 'Body': RShoulderPitch {}, RShoulderRoll {}, RElbowYaw {}, RElbowRoll {}, RWristYaw {}, RHand{}"
-                                                                    .format(errors[20],
-                                                                            errors[21],
-                                                                            errors[22],
-                                                                            errors[23],
-                                                                            errors[24],
-                                                                            errors[25])) 
-                print("=====================================================")
-                print ""
-
-            elif self.key == 'q':
-                break            
-
-        ## set stiffness OFF: (not needed, when using self.motionProxy.rest ##
-        # always check that your robot is in a stable position before disabling the stiffness!!
-        # self.set_stiffness(False) 
-
-        rate = rospy.Rate(10) # sets the sleep time to 10ms                    
-
-        #rospy.sleep(3.0)
-        print("motion task ended")
-
-        # Set NAO to resting position
-        self.motionProxy.rest()
-        print("NAO resting")
-        time.sleep(2.0)
-        
-        #while not rospy.is_shutdown():
-        #    self.set_stiffness(self.stiffness)
-        #    rate.sleep()
-        
-        sys.exit(0)
-
-
-    # service handler
-    def handle_move_joints(request):
-
-        err_code = 0
-            
-        # Set NAO to start-up position
-        # self.motionProxy.wakeUp()
-        # time.sleep(2.0)
-
-        # Set Nao Stiffness ON
-        self.motionProxy.setStiffnesses("Body", 1.0)
-
-        # init_posture
-        # if request.init_posture:
-        postureProxy = ALProxy("ALRobotPosture", self.robotIP, self.PORT)
-        postureProxy.goToPosture("StandZero", 0.5)
-        rospy.sleep(3.0)
-        print("NAO in init position, ready to move")
-        #return err_code
-
-        # effector   = request.name
-        # space      = request.frame
-        # axisMask   = request.axisMask
-        # isAbsolute = request.absolute
-        # maxSpeedFraction = request.maxSpeedFraction
-        # times      = request.times
-
-        # set the current position is zero
-        # currentPos = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-
-        # get the changes relative to the current position
-        # targetPos  = request.target
-
-        # Go to the target and back again
-        # path = [targetPos, currentPos]
-
-        # if times are set use positionInterpolation otherwise use setPositions
-        # if len(times) > 0:
-        #     self.motionProxy.positionInterpolation(effector, space, path,
+        #             targetPos = [dx, dy, dz, droll, dpitch, dyaw]
+        #             self.motionProxy.positionInterpolation(effector, space, path,
         #                                     axisMask, times, isAbsolute)
-        # else:
-        #     self.motionProxy.setPositions(effector, space, target, maxSpeedFraction, axisMask)
+        #             print("motion completed")
+        #             obtain_pos = 0'''
+
+        #     elif self.key == 'a':
+        #         '''DEPRECATED; not used for this project anymore
+        #         # cartesian: set position interpolation in absolute values
+        #         if obtain_pos == 1:
+                    
+        #             self.motionProxy.positionInterpolation(effector, space, path,
+        #                                     axisMask, times, isAbsolute)
+        #             print("motion completed")
+        #             obtain_pos = 0'''
+
+        #     elif self.key == 'f': #refresh setting para
+        #         obtain_pos = 0
+        #         progress = 0
+
+        #     elif self.key == 't': 
+        #         # times interpolations; here: 'Head' (split in 'HeadYaw' & 'HeadPitch')
+        #         names      = ["HeadYaw", "HeadPitch"]
+        #         angleLists = [[1.0, -1.0, 1.0, -1.0], [-1.0]]
+        #         times      = [[1.0,  2.0, 3.0,  4.0], [ 5.0]]
+        #         isAbsolute = False
+        #         self.motionProxy.angleInterpolation(names, angleLists, times, isAbsolute)
+
+        #     elif self.key == 'c': 
+        #         # reactive control without interpolation; 
+
+        #         #here: 'LArm & RArm together'
+        #         names = ["LShoulderPitch", "LShoulderRoll", "LElbowYaw"] 
+        #         names += ["LElbowRoll", "LWristYaw", "LHand"]
+        #         names += ["RShoulderPitch", "RShoulderRoll", "RElbowYaw"]
+        #         names += ["RElbowRoll", "RWristYaw", "RHand"]
+        #         fractionMaxSpeed = 0.15
+
+        #         # target
+        #         angles = [10*almath.TO_RAD, -10*almath.TO_RAD, 10*almath.TO_RAD]
+        #         angles += [-10*almath.TO_RAD, 10*almath.TO_RAD, 1]
+        #         angles += [10*almath.TO_RAD, 10*almath.TO_RAD, 10*almath.TO_RAD]
+        #         angles += [10*almath.TO_RAD, 10*almath.TO_RAD, 1]
+        #         self.motionProxy.setAngles(names,angles,fractionMaxSpeed)
+        #         # wait half a second
+        #         #time.sleep(0.5)
+        #         time.sleep(3.0)
+
+        #         # change target
+        #         angles = [0*almath.TO_RAD, 70*almath.TO_RAD, 0*almath.TO_RAD]
+        #         angles += [0*almath.TO_RAD, 0*almath.TO_RAD, 0]
+        #         angles += [0*almath.TO_RAD, -70*almath.TO_RAD, 0*almath.TO_RAD]
+        #         angles += [0*almath.TO_RAD, 0*almath.TO_RAD, 0]
+        #         self.motionProxy.setAngles(names,angles,fractionMaxSpeed)
+        #         # wait half a second
+        #         #time.sleep(0.5)
+        #         time.sleep(3.0)                
+
+        #         # change target
+        #         # ...
+
+
+        #     elif self.key == 'v': 
+        #         # reactive control with interpolation; 
+        #         # if obtain_pos == 1:
+        #             #while True: -> or also establish a key press as abortion like 'while not self.key =..'
+        #             if progress == 0:
+        #                 step = "init"
+        #                 self.set_pose_joint_space(self.motionProxy,step)
+        #                 progress += 1
+        #             elif progress == 1:
+        #                 step = "update"
+        #                 self.set_pose_joint_space(self.motionProxy,step)
+        #             else:
+        #                 print "Error occured in setting joint target"
+        #                 print "-------------------------------------"
+        #                 exit(1)
+
+        #             # here: end of while loop
+
+        #             #time.sleep(2.0)
+
+        #             # obtain_pos += 0
+
+
+        #     elif self.key == 'l': 
+        #         # Example showing how to get the current task list
+        #         # We will create a task first, so that we see a result
+        #         names      = "HeadYaw"
+        #         angleLists = 1.0
+        #         timeList   = 3.0
+        #         isAbsolute = True
+        #         self.motionProxy.post.angleInterpolation(names, angleLists, timeList, isAbsolute)
+        #         time.sleep(0.1)
+        #         print 'Tasklist: ', self.motionProxy.getTaskList()
+
+        #         time.sleep(2.0)
+
+        #     elif self.key == 'k': 
+        #         # This function is useful to kill motion Task
+        #         # To see the current motionTask please use getTaskList() function
+
+        #         self.motionProxy.post.angleInterpolation('HeadYaw', 90*almath.TO_RAD, 10, True) # (names, angleLists, timeList, isAbsolute)
+        #         time.sleep(3)
+        #         taskList = self.motionProxy.getTaskList()
+        #         uiMotion = taskList[0][1]
+        #         self.motionProxy.killTask(uiMotion)
+
+        #         self.motionProxy.setStiffnesses("Head", 0.0)
+
+        #         # alternative 1): kill move
+        #         # self.motionProxy.post.moveTo(0.5, 0.0, 0.0)
+        #         # time.sleep(3.0)
+        #         # # End the walk suddenly (around 20ms)
+        #         # self.motionProxy.killMove()
+
+        #         # alternative 2): kill ALL tasks
+        #         # # Example showing how to kill all the tasks.
+        #         # self.motionProxy.killAll()
+        #         # print "All tasks killed."
+
+        #     elif self.key == 'o': 
+        #         # Example showing how to open the left hand
+        #         self.motionProxy.openHand('LHand')
+        #         # Example showing how to close the right hand.
+        #         handName  = 'LHand'
+        #         self.motionProxy.closeHand(handName)
+
+        #     elif self.key == 'b': 
+        #         # Example that finds the difference between the command and sensed angles.
+        #         names         = "Body"
+        #         useSensors    = False
+        #         commandAngles = self.motionProxy.getAngles(names, useSensors)
+        #         print ("Command angles in 'Head' for 'Body': HeadYaw {}, HeadPitch {}"
+        #                                                             .format(commandAngles[0],
+        #                                                                     commandAngles[1]))          
+        #         print ""                
+        #         print ("Command angles in 'LArm' for 'Body': LShoulderPitch {}, LShoulderRoll {}, LElbowYaw {}, LElbowRoll {}, LWristYaw {}, LHand{}"
+        #                                                             .format(commandAngles[2],
+        #                                                                     commandAngles[3],
+        #                                                                     commandAngles[4],
+        #                                                                     commandAngles[5],
+        #                                                                     commandAngles[6],
+        #                                                                     commandAngles[7])) 
+        #         print ""                
+        #         print ("Command angles in 'LLeg' for 'Body': LHipYawPitch {}, LHipRoll {}, LHipPitch {}, LKneePitch {}, LAnklePitch {}, RAnkleRoll{}"
+        #                                                             .format(commandAngles[8],
+        #                                                                     commandAngles[9],
+        #                                                                     commandAngles[10],
+        #                                                                     commandAngles[11],
+        #                                                                     commandAngles[12],
+        #                                                                     commandAngles[13])) 
+        #         print ""
+        #         print ("Command angles in 'RLeg' for 'Body': RHipYawPitch {}, RHipRoll {}, RHipPitch {}, RKneePitch {}, RAnklePitch {}, LAnkleRoll{}"
+        #                                                             .format(commandAngles[14],
+        #                                                                     commandAngles[15],
+        #                                                                     commandAngles[16],
+        #                                                                     commandAngles[17],
+        #                                                                     commandAngles[18],
+        #                                                                     commandAngles[19])) 
+        #         print ""
+        #         print ("Command angles in 'RArm' for 'Body': RShoulderPitch {}, RShoulderRoll {}, RElbowYaw {}, RElbowRoll {}, RWristYaw {}, RHand{}"
+        #                                                             .format(commandAngles[20],
+        #                                                                     commandAngles[21],
+        #                                                                     commandAngles[22],
+        #                                                                     commandAngles[23],
+        #                                                                     commandAngles[24],
+        #                                                                     commandAngles[25])) 
+        #         print("=====================================================")
+        #         print ""
+
+        #         useSensors  = True
+        #         sensorAngles = self.motionProxy.getAngles(names, useSensors)
+        #         print ("Sensor angles in 'Head' for 'Body': HeadYaw {}, HeadPitch {}"
+        #                                                             .format(sensorAngles[0],
+        #                                                                     sensorAngles[1]))          
+        #         print ""                
+        #         print ("Sensor angles in 'LArm' for 'Body': LShoulderPitch {}, LShoulderRoll {}, LElbowYaw {}, LElbowRoll {}, LWristYaw {}, LHand{}"
+        #                                                             .format(sensorAngles[2],
+        #                                                                     sensorAngles[3],
+        #                                                                     sensorAngles[4],
+        #                                                                     sensorAngles[5],
+        #                                                                     sensorAngles[6],
+        #                                                                     sensorAngles[7])) 
+        #         print ""                
+        #         print ("Sensor angles in 'LLeg' for 'Body': LHipYawPitch {}, LHipRoll {}, LHipPitch {}, LKneePitch {}, LAnklePitch {}, RAnkleRoll{}"
+        #                                                             .format(sensorAngles[8],
+        #                                                                     sensorAngles[9],
+        #                                                                     sensorAngles[10],
+        #                                                                     sensorAngles[11],
+        #                                                                     sensorAngles[12],
+        #                                                                     sensorAngles[13])) 
+        #         print ""
+        #         print ("Sensor angles in 'RLeg' for 'Body': RHipYawPitch {}, RHipRoll {}, RHipPitch {}, RKneePitch {}, RAnklePitch {}, LAnkleRoll{}"
+        #                                                             .format(sensorAngles[14],
+        #                                                                     sensorAngles[15],
+        #                                                                     sensorAngles[16],
+        #                                                                     sensorAngles[17],
+        #                                                                     sensorAngles[18],
+        #                                                                     sensorAngles[19])) 
+        #         print ""
+        #         print ("Sensor angles in 'RArm' for 'Body': RShoulderPitch {}, RShoulderRoll {}, RElbowYaw {}, RElbowRoll {}, RWristYaw {}, RHand{}"
+        #                                                             .format(sensorAngles[20],
+        #                                                                     sensorAngles[21],
+        #                                                                     sensorAngles[22],
+        #                                                                     sensorAngles[23],
+        #                                                                     sensorAngles[24],
+        #                                                                     sensorAngles[25])) 
+        #         print("=====================================================")
+        #         print ""
+
+        #         errors = []
+        #         for i in range(0, len(commandAngles)):
+        #             errors.append(commandAngles[i]-sensorAngles[i])
+        #         print "Errors"
+        #         print ("Errors in 'Head' for 'Body': HeadYaw {}, HeadPitch {}"
+        #                                                             .format(errors[0],
+        #                                                                     errors[1]))          
+        #         print ""                
+        #         print ("Errors in 'LArm' for 'Body': LShoulderPitch {}, LShoulderRoll {}, LElbowYaw {}, LElbowRoll {}, LWristYaw {}, LHand{}"
+        #                                                             .format(errors[2],
+        #                                                                     errors[3],
+        #                                                                     errors[4],
+        #                                                                     errors[5],
+        #                                                                     errors[6],
+        #                                                                     errors[7])) 
+        #         print ""                
+        #         print ("Errors in 'LLeg' for 'Body': LHipYawPitch {}, LHipRoll {}, LHipPitch {}, LKneePitch {}, LAnklePitch {}, RAnkleRoll{}"
+        #                                                             .format(errors[8],
+        #                                                                     errors[9],
+        #                                                                     errors[10],
+        #                                                                     errors[11],
+        #                                                                     errors[12],
+        #                                                                     errors[13])) 
+        #         print ""
+        #         print ("Errors in 'RLeg' for 'Body': RHipYawPitch {}, RHipRoll {}, RHipPitch {}, RKneePitch {}, RAnklePitch {}, LAnkleRoll{}"
+        #                                                             .format(errors[14],
+        #                                                                     errors[15],
+        #                                                                     errors[16],
+        #                                                                     errors[17],
+        #                                                                     errors[18],
+        #                                                                     errors[19])) 
+        #         print ""
+        #         print ("Errors in 'RArm' for 'Body': RShoulderPitch {}, RShoulderRoll {}, RElbowYaw {}, RElbowRoll {}, RWristYaw {}, RHand{}"
+        #                                                             .format(errors[20],
+        #                                                                     errors[21],
+        #                                                                     errors[22],
+        #                                                                     errors[23],
+        #                                                                     errors[24],
+        #                                                                     errors[25])) 
+        #         print("=====================================================")
+        #         print ""
+
+        #     elif self.key == 'q':
+        #         break            
+
+        # ## set stiffness OFF: (not needed, when using self.motionProxy.rest ##
+        # # always check that your robot is in a stable position before disabling the stiffness!!
+        # # self.set_stiffness(False) 
+
+        # rate = rospy.Rate(10) # sets the sleep time to 10ms                    
+
+        # #rospy.sleep(3.0)
+        # print("motion task ended")
+
+        # # Set NAO to resting position
+        # self.motionProxy.rest()
+        # print("NAO resting")
+        # time.sleep(2.0)
         
-        rospy.sleep(3.0)
-
-        print("motion completed")
-
-        # Set NAO to resting position
-        self.motionProxy.rest()
-        print("NAO resting")
-
-        # Set Nao Stiffness OFF
-        #self.motionProxy.setStiffnesses("Body", 0.0)
-        time.sleep(2.0)
-        print("motion completed")
-        return err_code
+        # #while not rospy.is_shutdown():
+        # #    self.set_stiffness(self.stiffness)
+        # #    rate.sleep()
+        
+        # sys.exit(0)
 
 
 
