@@ -63,53 +63,36 @@ function publishPose(pose){
         inputResolution: { width: 320, height: 240 }
     }
 
+    async function execute(net) {
+        while (true) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+            cameraListener.subscribe(function(message){
+                image = document.getElementById("camera_stream")
+                image.src = "data:image/png;base64," + message.data
+                image.onload = function() { 
+                    net.estimateSinglePose(image, {
+                        imageScaleFactor: 1,
+                        flipHorizontal: false,
+                        outputStride: 16,
+                        scoreThreshold: 0.8,
+                        nmsRadius: 30
+                    }).then(function(pose){
+                        publishPose(pose)
+                    })
+                    cameraListener.unsubscribe()
+                }
+            })  
+        }
+    }
+
     if(cameraTimer == null) {
             ros.connect("ws://" + window.location.hostname + ":9090")
 
             posenet.load(options).then(function(net){
                 console.log("model loaded ...")
-                setInterval(function(){
-                    cameraListener.subscribe(function(message){
-                        image = document.getElementById("camera_stream")
-                        image.src = "data:image/png;base64," + message.data
-                        image.onload = function() { 
-                            net.estimateSinglePose(image, {
-                                imageScaleFactor: 1,
-                                flipHorizontal: false,
-                                outputStride: 16,
-                                scoreThreshold: 0.8,
-                                nmsRadius: 30
-                            }).then(function(pose){
-                                publishPose(pose)
-                            })
-                            cameraListener.unsubscribe()
-                        }
-                    })
-                }, 20)
+                execute(net)
             })
            
-            /*
-            cameraTimer = setInterval(function(){
-                cameraListener.subscribe(function(message) {
-                    image = document.getElementById('camera_stream')
-                    image.src = "data:image/png;base64," + message.data
-                  
-                    posenet.load().then(function(net) {
-                        const pose = net.estimateSinglePose(image, {
-                            imageScaleFactor: 0.5,
-                            flipHorizontal: false,
-                            outputStride: 16,
-                            scoreThreshold: 0.8,
-                            nmsRadius: 30
-                        });
-                        return pose;
-                    }).then(function(pose){
-                        publishPose(pose)
-                    })
-                })
-                cameraListener.unsubscribe()            
-            }, 2000) // publish an image once each 2 seconds
-            */
         document.getElementById('startstopicon').setAttribute('src', RECORD_ON);
     } else {
         ros.close();
