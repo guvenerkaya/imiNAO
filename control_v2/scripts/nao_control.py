@@ -1,4 +1,5 @@
 #!/usr/bin/env python2.7
+# Team C: Yassine El Himer, Gueven Erkaya, Patrick Hinz
 import rospy
 import time
 import sys
@@ -68,11 +69,13 @@ class Control:
         self.joint_velocities = data.velocity
 
     def depth_data_calib(self,depth):
+        '''
+        depricated
         # calibration of depth in current pose; here especially for arm
         # current_depth = depth # current depth 'x'
         # min_depth,max_depth = 80,250 # max and min from calibration (90 deg up and 0 deg straight to camera)
         # angle_right_elbow_yaw = -90/(max_depth-min_depth)*(current_depth-min_depth) + 90
-
+        '''
         bound = 100
         if depth <= bound:
             angle_right_elbow_yaw = 0
@@ -88,7 +91,8 @@ class Control:
         print("depth: {}, r shoulder roll: {} ".format(self.depth, angle_right_shoulder_roll))
         
         return self.degree_to_rad_convertion([angle_right_elbow_yaw, angle_right_shoulder_roll])
-
+    '''
+    depricated
     def depth_orient(self, angle):
         points = []
         poses = self.poses
@@ -103,7 +107,7 @@ class Control:
             return -angle
         else:
             return angle
-
+    '''
 
     def poses_data(self, poses_msg):
 
@@ -193,7 +197,8 @@ class Control:
         resultRadian = math.acos(((math.pow(p12, 2)) + (math.pow(p13, 2)) - (math.pow(p23, 2))) / (2 * p12 * p13))
         return resultRadian
 
-
+    '''
+    not used:
     def convert_poses_rot(self, poses, joint_name):
         if joint_name == "RightLowArm":
             for keypoint in poses[0].keypoints:
@@ -211,6 +216,7 @@ class Control:
         p23 = math.sqrt(math.pow((p2[0] - p3[0]), 2) + math.pow((p2[1] - p3[1]), 2))
 
         return
+    '''
 
     # sets the stiffness for all joints. can be refined to only toggle single joints, set values between [0,1] etc
     def set_stiffness(self,value):
@@ -313,6 +319,8 @@ class Control:
         angles = [i * almath.TO_RAD for i in angles]
         return angles
 
+    '''
+    depricated
     def set_pose_joint_space(self, motionProxy, step ,angles=None): #update joints with interpolation
 
         # set the names for interpolation movement
@@ -377,9 +385,10 @@ class Control:
             # command to change joints in group; non-blocking fct for interpolation
             self.motionProxy.post.angleInterpolation(names, angles, timeLists, isAbsolute) 
             time.sleep(0.5)
+    '''
 
-
-
+    '''
+    not used:
     def central_control(self):
         # create several topic subscriber #
         rospy.Subscriber("key", String, self.keyboard_data) # for keyboard
@@ -413,7 +422,7 @@ class Control:
         #         self.set_joint_angles(0,1.1,0,-1.1,0,0,0,0,0,0,0)
         #         rospy.sleep(1.0)
         #     elif self.key == 'g': # get position
-        #         '''DEPRECATED; not used for this project anymore
+        #         #DEPRECATED; not used for this project anymore
         #         # cartesian: get position
         #         if obtain_pos == 0:
         #             print("requested joint: {}".format(name))
@@ -429,10 +438,10 @@ class Control:
         #                                                                 current[4], 
         #                                                                 current[5]))
         #             print("=====================================================")
-        #             obtain_pos = 1'''
+        #             obtain_pos = 1
                     
         #     elif self.key == 'r': 
-        #         '''DEPRECATED; not used for this project anymore
+        #         #DEPRECATED; not used for this project anymore
         #         # cartesian: set position interpolation in relative values
         #         if obtain_pos == 1:
         #             dx = targetPos[0] + current[0]
@@ -446,17 +455,17 @@ class Control:
         #             self.motionProxy.positionInterpolation(effector, space, path,
         #                                     axisMask, times, isAbsolute)
         #             print("motion completed")
-        #             obtain_pos = 0'''
+        #             obtain_pos = 0
 
         #     elif self.key == 'a':
-        #         '''DEPRECATED; not used for this project anymore
+        #         #DEPRECATED; not used for this project anymore
         #         # cartesian: set position interpolation in absolute values
         #         if obtain_pos == 1:
                     
         #             self.motionProxy.positionInterpolation(effector, space, path,
         #                                     axisMask, times, isAbsolute)
         #             print("motion completed")
-        #             obtain_pos = 0'''
+        #             obtain_pos = 0
 
         #     elif self.key == 'f': #refresh setting para
         #         obtain_pos = 0
@@ -717,6 +726,7 @@ class Control:
         # #    rate.sleep()
         
         # sys.exit(0)
+        '''
 
 
 
